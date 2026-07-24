@@ -33,4 +33,10 @@
 
 ## Apple frameworks
 
-- AppKit and Foundation are system frameworks supplied with macOS.
+- AppKit, Foundation, and ServiceManagement are system frameworks supplied with macOS.
+
+## GitHub Actions
+
+- [actions/checkout](https://github.com/actions/checkout), version `v7.0.1`, pinned at commit `3d3c42e5aac5ba805825da76410c181273ba90b1`.
+- License: MIT.
+- Use: read-only repository checkout in the macOS continuous-integration workflow; it is not included in the app.

@@ -97,6 +97,10 @@ expect(
     LyricsProvider.bestMatch(in: [traditionalMetadataLyrics], for: simplifiedMetadataTrack) != nil,
     "不同歌曲的歌名和歌手繁简差异也必须通用匹配"
 )
+expect(
+    LyricsProvider.searchTitles(for: "后来") == ["后来", "後來"],
+    "搜索失败后必须能用另一种繁简标题回退"
+)
 
 let wrongVersionCache = LyricsDocument(source: "[00:01.00]错误版本", referenceDuration: 180)
 expect(

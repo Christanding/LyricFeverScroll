@@ -7,7 +7,7 @@
 ## Architecture and data flow
 
 - `AppleMusicClient` reads the current track and position through Apple Events.
-- `LyricsProvider` normalizes metadata to Simplified Chinese before matching and keeps at most 500 raw-LRC cache files. Manual reload bypasses cache; mismatched-duration cache entries are rejected.
+- `LyricsProvider` normalizes metadata before matching, retries the alternate Traditional/Simplified title only after the primary search fails, and writes at most 500 raw-LRC cache files through one utility queue.
 - `LRCParser` parses timestamps and converts Traditional Chinese to Simplified Chinese.
 - `MainlandChineseConverter` applies the fixed OpenCC 1.3.1 `tw2sp` dictionary chain, followed by narrowly scoped Mainland-preference and lyric typo corrections.
 - `AppDelegate` receives event-driven seek updates through the bundled MediaRemoteAdapter, reconciles immediately after wake and every 15 seconds otherwise, and schedules a zero-tolerance one-shot timer for the next lyric boundary.
@@ -15,11 +15,13 @@
 - `AttributedLyricFormatter` fits the whole line into at most 420pt and selects fonts per character.
 - `SettingsStore.syncOffset` controls the live lyric offset from -1.5s to +1.5s; the preserved default is +0.65s.
 - `PlaybackDiagnostics` keeps only the latest 100 important events in memory; the menu can copy them for troubleshooting.
+- `SMAppService.mainApp` controls the optional launch-at-login menu item on macOS 13 or later.
 
 ## Runbook
 
 - Build: `./scripts/build.sh`
 - Logic tests: use the commands in `README.md`.
+- CI: `.github/workflows/ci.yml` runs the logic tests, app build, signature verification, and vendored-adapter checksum on macOS.
 - The built app is `build/Lyric Fever Scroll.app`.
 
 ## Constraints

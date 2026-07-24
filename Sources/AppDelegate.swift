@@ -1,6 +1,7 @@
 import AppKit
+import ServiceManagement
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static let playbackReconciliationInterval: TimeInterval = 15
 
     private let music = AppleMusicClient()
@@ -11,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem!
     private var trackMenuItem: NSMenuItem!
+    private var launchAtLoginMenuItem: NSMenuItem!
     private var settingsWindow: SettingsWindowController!
     private var reconciliationTimer: Timer?
     private var lyricTimer: Timer?
@@ -98,6 +100,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             action: #selector(openSettings),
             keyEquivalent: ","
         ))
+        launchAtLoginMenuItem = NSMenuItem(
+            title: "登录时自动启动",
+            action: #selector(toggleLaunchAtLogin),
+            keyEquivalent: ""
+        )
+        menu.addItem(launchAtLoginMenuItem)
         menu.addItem(NSMenuItem(
             title: "重新加载歌词",
             action: #selector(reloadLyrics),
@@ -115,8 +123,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: "q"
         ))
         menu.items.forEach { $0.target = self }
+        menu.delegate = self
         statusItem.menu = menu
+        updateLaunchAtLoginMenuItem()
         display("歌词…")
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        updateLaunchAtLoginMenuItem()
     }
 
     @objc private func musicPlayerChanged(_ notification: Notification) {
@@ -312,6 +326,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         settingsWindow.show()
+    }
+
+    @objc private func toggleLaunchAtLogin() {
+        let service = SMAppService.mainApp
+        do {
+            switch service.status {
+            case .enabled:
+                try service.unregister()
+            case .requiresApproval:
+                SMAppService.openSystemSettingsLoginItems()
+            case .notRegistered, .notFound:
+                try service.register()
+            @unknown default:
+                return
+            }
+        } catch {
+            diagnostics.record("login-item.failed error=\(error.localizedDescription)")
+            SMAppService.openSystemSettingsLoginItems()
+        }
+        updateLaunchAtLoginMenuItem()
+    }
+
+    private func updateLaunchAtLoginMenuItem() {
+        let status = SMAppService.mainApp.status
+        launchAtLoginMenuItem.state = status == .enabled ? .on : .off
+        launchAtLoginMenuItem.title = status == .requiresApproval
+            ? "登录时自动启动（需批准）"
+            : "登录时自动启动"
     }
 
     @objc private func reloadLyrics() {

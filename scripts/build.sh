@@ -27,6 +27,7 @@ swiftc \
   -whole-module-optimization \
   -framework AppKit \
   -framework Foundation \
+  -framework ServiceManagement \
   "$project_dir"/Sources/*.swift \
   -o "$executable"
 

@@ -10,9 +10,11 @@
 - 使用固定版本 OpenCC 1.3.1 的 `tw2sp` 转换链，将繁体字、台湾异体字和台湾词汇统一为大陆简体，并应用少量大陆首选用词和歌词错字修正。
 - 正常播放按每句时间点零容差触发；拖动进度由 MediaRemote 系统事件立即更新，不轮询，15 秒只做一次完整状态校准。
 - Mac 从睡眠唤醒时立即校准；MediaRemote 辅助进程异常时按 1–30 秒指数退避重启。
+- 可从菜单启用 macOS 原生“登录时自动启动”，不安装额外守护进程。
 - 保留 LRC 的空时间点，在间奏开始时立即清空上一句。
 - 每首歌从 LRCLIB 获取一次同步歌词，之后读取本机缓存；最多保留最新 500 份，版本时长不符时自动失效，手动重新加载会强制联网刷新。
 - 宽泛搜索只接受歌名、歌手和时长均可信的版本，避免错误现场版进入缓存。
+- 原始标题搜索失败时，才会用另一种繁简字形再查一次；缓存保存和裁剪在低优先级串行队列执行。
 - 菜单栏可复制最近 100 条内存诊断事件；不写日志文件，不增加轮询。
 - 现场版没有独立结果时，会按基础歌名和最接近的时长回退匹配。
 - 回退版本在时长差不超过 5% 时，会按 Apple Music 实际时长缩放时间轴。
@@ -43,10 +45,11 @@ MediaRemoteAdapter 已固定在 `Vendor/MediaRemoteAdapter` 并在构建前校�
 
 ## 依赖和来源
 
-- AppKit / Foundation：macOS 系统框架。
+- AppKit / Foundation / ServiceManagement：macOS 系统框架。
 - [MediaRemoteAdapter](https://github.com/ejbills/mediaremote-adapter)：固定提交和 SHA-256 后随项目提供，用于事件驱动的播放位置更新；构建不再依赖另一个已安装应用。
 - [OpenCC](https://github.com/BYVoid/OpenCC)：使用固定的 1.3.1 台湾转大陆简体词典，运行时只在每首歌加载歌词时转换一次。
 - [LRCLIB](https://lrclib.net)：运行时同步歌词 API；服务端源码采用 MIT 许可证。
 - [LyricFever](https://github.com/aviwad/LyricFever)：MIT 许可的上游项目。本程序未复制其源码，但保留名称和设计来源说明。
+- [actions/checkout](https://github.com/actions/checkout)：CI 中以完整 SHA 固定的 MIT 许可 GitHub Action，不进入应用包。
 
 详见 `NOTICE.md`。

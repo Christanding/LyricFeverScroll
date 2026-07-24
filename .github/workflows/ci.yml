@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify MediaRemoteAdapter
+        working-directory: Vendor/MediaRemoteAdapter
+        run: shasum -a 256 -c SHA256SUMS
+
+      - name: Run logic tests
+        run: |
+          mkdir -p build
+          swiftc -swift-version 5 -O -warnings-as-errors \
+            -framework AppKit -framework Foundation \
+            Sources/MainlandChineseConverter.swift Sources/LyricCore.swift \
+            Sources/MediaRemotePositionStream.swift Tests/main.swift \
+            -o build/logic-tests
+          ./build/logic-tests
+
+      - name: Build app
+        run: ./scripts/build.sh
+
+      - name: Verify app signature
+        run: codesign --verify --deep --strict "build/Lyric Fever Scroll.app"

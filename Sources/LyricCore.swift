@@ -264,6 +264,10 @@ final class LyricsProvider {
     ) as? String ?? "1.1.0"
     private let session: URLSession
     private let cacheDirectory: URL
+    private let cacheQueue = DispatchQueue(
+        label: "personal.chris.LyricFeverScroll.cache",
+        qos: .utility
+    )
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -288,11 +292,13 @@ final class LyricsProvider {
             return nil
         }
 
+        let searchURLs = Self.searchTitles(for: track.name).compactMap(Self.searchURL(for:))
         guard let exactURL = Self.exactURL(for: track),
-              let searchURL = Self.searchURL(for: track) else {
+              let searchURL = searchURLs.first else {
             DispatchQueue.main.async { completion(.failure(LyricsError.invalidRequest)) }
             return nil
         }
+        let fallbackSearchURL = searchURLs.dropFirst().first
 
         let loadTask = LyricsLoadTask()
 
@@ -307,7 +313,43 @@ final class LyricsProvider {
         func fail(_ error: Error) {
             guard !loadTask.completed else { return }
             loadTask.failureCount += 1
-            if loadTask.failureCount == 2 { finish(.failure(error)) }
+            if loadTask.failureCount >= loadTask.tasks.count { finish(.failure(error)) }
+        }
+
+        func acceptSearch(_ records: [LRCLIBRecord], provider: LyricsProvider?) -> Bool {
+            guard let best = Self.bestMatch(in: records, for: track),
+                  let lyrics = best.syncedLyrics, !lyrics.isEmpty else { return false }
+            let document = LyricsDocument(source: lyrics, referenceDuration: best.duration)
+            let delayed = DispatchWorkItem {
+                guard !loadTask.completed else { return }
+                provider?.save(document, to: cacheURL)
+                finish(.success(document))
+            }
+            loadTask.delayedResult = delayed
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: delayed)
+            return true
+        }
+
+        var fallbackStarted = false
+        func startFallback(using provider: LyricsProvider?, after error: Error) {
+            guard !fallbackStarted, let provider, let fallbackSearchURL else {
+                fail(error)
+                return
+            }
+            fallbackStarted = true
+            let fallbackTask = provider.request(fallbackSearchURL) { [weak provider] (result: Result<[LRCLIBRecord], Error>) in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success(let records):
+                        if !acceptSearch(records, provider: provider) { fail(LyricsError.notFound) }
+                    case .failure(let error):
+                        fail(error)
+                    }
+                }
+            }
+            loadTask.tasks.append(fallbackTask)
+            fail(error)
+            fallbackTask.resume()
         }
 
         let exactTask = request(exactURL) { [weak self] (result: Result<LRCLIBRecord, Error>) in
@@ -331,21 +373,11 @@ final class LyricsProvider {
             DispatchQueue.main.async {
                 switch result {
                 case .success(let records):
-                    guard let best = Self.bestMatch(in: records, for: track),
-                          let lyrics = best.syncedLyrics, !lyrics.isEmpty else {
-                        fail(LyricsError.notFound)
-                        return
+                    if !acceptSearch(records, provider: self) {
+                        startFallback(using: self, after: LyricsError.notFound)
                     }
-                    let document = LyricsDocument(source: lyrics, referenceDuration: best.duration)
-                    let delayed = DispatchWorkItem {
-                        guard !loadTask.completed else { return }
-                        self?.save(document, to: cacheURL)
-                        finish(.success(document))
-                    }
-                    loadTask.delayedResult = delayed
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: delayed)
                 case .failure(let error):
-                    fail(error)
+                    startFallback(using: self, after: error)
                 }
             }
         }
@@ -406,15 +438,18 @@ final class LyricsProvider {
     }
 
     private func save(_ document: LyricsDocument, to url: URL) {
-        do {
-            try FileManager.default.createDirectory(
-                at: cacheDirectory,
-                withIntermediateDirectories: true
-            )
-            try JSONEncoder().encode(document).write(to: url, options: .atomic)
-            Self.pruneCache(at: cacheDirectory, keeping: Self.maximumCacheFiles)
-        } catch {
-            // A cache failure should never prevent lyric display.
+        let directory = cacheDirectory
+        cacheQueue.async {
+            do {
+                try FileManager.default.createDirectory(
+                    at: directory,
+                    withIntermediateDirectories: true
+                )
+                try JSONEncoder().encode(document).write(to: url, options: .atomic)
+                Self.pruneCache(at: directory, keeping: Self.maximumCacheFiles)
+            } catch {
+                // A cache failure should never prevent lyric display.
+            }
         }
     }
 
@@ -454,9 +489,21 @@ final class LyricsProvider {
         return components?.url
     }
 
-    private static func searchURL(for track: MusicSnapshot) -> URL? {
+    static func searchTitles(for title: String) -> [String] {
+        let original = lookupTitle(title)
+        let simplified = SimplifiedChinese.normalize(original)
+        let traditional = simplified.applyingTransform(
+            StringTransform("Traditional-Simplified"),
+            reverse: true
+        ) ?? simplified
+        return [original, simplified, traditional].reduce(into: []) { titles, candidate in
+            if !candidate.isEmpty, !titles.contains(candidate) { titles.append(candidate) }
+        }
+    }
+
+    private static func searchURL(for title: String) -> URL? {
         var components = URLComponents(string: "https://lrclib.net/api/search")
-        components?.queryItems = [URLQueryItem(name: "track_name", value: lookupTitle(track.name))]
+        components?.queryItems = [URLQueryItem(name: "track_name", value: title)]
         return components?.url
     }
 
