@@ -146,7 +146,9 @@ appleWatch.cancel()
 final class NoNetworkURLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-    override func startLoading() {}
+    override func startLoading() {
+        client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+    }
     override func stopLoading() {}
 }
 let noNetworkConfiguration = URLSessionConfiguration.ephemeral
@@ -156,8 +158,13 @@ let localFirstProvider = LyricsProvider(
     appleCacheProvider: AppleMusicCacheLyricsProvider(cacheRoot: appleWatchRoot)
 )
 var localFirstDocument: LyricsDocument?
-let localFirstTask = localFirstProvider.load(for: appleCacheTrack) { result in
+let localFirstTask = localFirstProvider.load(for: appleCacheTrack, ignoringCache: true) { result in
     localFirstDocument = try? result.get()
+}
+DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+    try! appleCatalogData.write(
+        to: appleWatchDataDirectory.appendingPathComponent(UUID().uuidString)
+    )
 }
 let localFirstDeadline = Date().addingTimeInterval(2)
 while localFirstDocument == nil, Date() < localFirstDeadline {
@@ -179,23 +186,13 @@ expect(
 )
 try! FileManager.default.removeItem(at: appleWatchRoot)
 
-final class ImmediateFailureURLProtocol: URLProtocol {
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-    override func startLoading() {
-        client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
-    }
-    override func stopLoading() {}
-}
 let delayedAppleRoot = FileManager.default.temporaryDirectory
     .appendingPathComponent("AppleMusicDelayed-\(UUID().uuidString)", isDirectory: true)
 let delayedAppleDataDirectory = delayedAppleRoot
     .appendingPathComponent("fsCachedData", isDirectory: true)
 try! FileManager.default.createDirectory(at: delayedAppleDataDirectory, withIntermediateDirectories: true)
-let immediateFailureConfiguration = URLSessionConfiguration.ephemeral
-immediateFailureConfiguration.protocolClasses = [ImmediateFailureURLProtocol.self]
 let delayedAppleProvider = LyricsProvider(
-    session: URLSession(configuration: immediateFailureConfiguration),
+    session: URLSession(configuration: noNetworkConfiguration),
     appleCacheProvider: AppleMusicCacheLyricsProvider(cacheRoot: delayedAppleRoot)
 )
 var delayedAppleResult: Result<LyricsDocument, Error>?
