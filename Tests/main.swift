@@ -59,6 +59,45 @@ let correctLiveLyrics = LRCLIBRecord(
 )
 expect(LyricsProvider.bestMatch(in: [correctLiveLyrics], for: liveTrack) != nil, "必须保留可信的现场版回退结果")
 
+let traditionalArtistLyrics = LRCLIBRecord(
+    trackName: "空心",
+    artistName: "光澤",
+    albumName: "光澤",
+    duration: 279,
+    syncedLyrics: "[00:13.94]热爱曾是唯一的信仰"
+)
+let simplifiedArtistTrack = MusicSnapshot(
+    state: "playing",
+    name: "空心",
+    artist: "光泽",
+    album: "光泽",
+    position: 0,
+    duration: 279
+)
+expect(
+    LyricsProvider.bestMatch(in: [traditionalArtistLyrics], for: simplifiedArtistTrack) != nil,
+    "歌手名的繁简差异不得阻止正确歌词匹配"
+)
+let traditionalMetadataLyrics = LRCLIBRecord(
+    trackName: "後來",
+    artistName: "劉若英",
+    albumName: nil,
+    duration: 329,
+    syncedLyrics: "[00:01.00]后来"
+)
+let simplifiedMetadataTrack = MusicSnapshot(
+    state: "playing",
+    name: "后来",
+    artist: "刘若英",
+    album: "",
+    position: 0,
+    duration: 329
+)
+expect(
+    LyricsProvider.bestMatch(in: [traditionalMetadataLyrics], for: simplifiedMetadataTrack) != nil,
+    "不同歌曲的歌名和歌手繁简差异也必须通用匹配"
+)
+
 let wrongVersionCache = LyricsDocument(source: "[00:01.00]错误版本", referenceDuration: 180)
 expect(
     !LyricsProvider.shouldUseCache(wrongVersionCache, for: liveTrack, ignoringCache: false),
@@ -70,6 +109,22 @@ expect(
     "手动重新加载必须绕过有效缓存"
 )
 
+let cacheTestDirectory = FileManager.default.temporaryDirectory
+    .appendingPathComponent("LyricFeverScroll-\(UUID().uuidString)", isDirectory: true)
+try! FileManager.default.createDirectory(at: cacheTestDirectory, withIntermediateDirectories: true)
+for index in 0..<4 {
+    let url = cacheTestDirectory.appendingPathComponent("cache-\(index).json")
+    try! Data("\(index)".utf8).write(to: url)
+    try! FileManager.default.setAttributes(
+        [.modificationDate: Date(timeIntervalSince1970: TimeInterval(index))],
+        ofItemAtPath: url.path
+    )
+}
+LyricsProvider.pruneCache(at: cacheTestDirectory, keeping: 2)
+let remainingCacheFiles = try! FileManager.default.contentsOfDirectory(atPath: cacheTestDirectory.path).sorted()
+try! FileManager.default.removeItem(at: cacheTestDirectory)
+expect(remainingCacheFiles == ["cache-2.json", "cache-3.json"], "缓存必须只保留最新的指定数量")
+
 let diagnostics = PlaybackDiagnostics(capacity: 2)
 diagnostics.record("first")
 diagnostics.record("second")
@@ -77,6 +132,11 @@ diagnostics.record("third")
 expect(!diagnostics.report.contains("first") && diagnostics.report.contains("third"), "诊断环必须限制内存容量")
 expect(SettingsStore.syncOffsetLabel(0.65) == "提前 0.65 秒", "同步偏移标签必须明确显示方向")
 expect(SettingsStore.syncOffsetLabel(-0.25) == "延后 0.25 秒", "负偏移必须显示为延后")
+var retryBackoff = RetryBackoff()
+let retryDelays = (0..<7).map { _ in retryBackoff.nextDelay() }
+expect(retryDelays == [1, 2, 4, 8, 16, 30, 30], "MediaRemote 重启必须指数退避并限制在 30 秒")
+retryBackoff.reset()
+expect(retryBackoff.nextDelay() == 1, "收到正常事件后必须重置重启退避")
 
 let fitted = AttributedLyricFormatter.fit(
     "抓住命运衣袖 在路口等我 This is a complete lyric line tonight",

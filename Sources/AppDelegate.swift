@@ -41,6 +41,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSNotification.Name("com.apple.Music.playerInfo"),
             object: nil
         )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(workspaceDidWake(_:)),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
 
         reconciliationTimer = Timer.scheduledTimer(
             timeInterval: Self.playbackReconciliationInterval,
@@ -66,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         DistributedNotificationCenter.default().removeObserver(self)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
         reconciliationTimer?.invalidate()
         mediaRemote.stop()
         lyricTimer?.invalidate()
@@ -113,6 +120,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func musicPlayerChanged(_ notification: Notification) {
+        refreshFromMusic(forceLyrics: false)
+    }
+
+    @objc private func workspaceDidWake(_ notification: Notification) {
+        diagnostics.record("workspace.did-wake")
         refreshFromMusic(forceLyrics: false)
     }
 

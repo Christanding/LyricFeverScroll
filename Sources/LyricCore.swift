@@ -258,6 +258,7 @@ final class LyricsProvider {
     typealias Completion = (Result<LyricsDocument, Error>) -> Void
 
     private static let cacheVersion = "v4"
+    private static let maximumCacheFiles = 500
     private static let userAgentVersion = Bundle.main.object(
         forInfoDictionaryKey: "CFBundleShortVersionString"
     ) as? String ?? "1.1.0"
@@ -411,8 +412,34 @@ final class LyricsProvider {
                 withIntermediateDirectories: true
             )
             try JSONEncoder().encode(document).write(to: url, options: .atomic)
+            Self.pruneCache(at: cacheDirectory, keeping: Self.maximumCacheFiles)
         } catch {
             // A cache failure should never prevent lyric display.
+        }
+    }
+
+    static func pruneCache(at directory: URL, keeping maximumCount: Int) {
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .contentModificationDateKey]
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: Array(keys),
+            options: .skipsHiddenFiles
+        ) else { return }
+
+        let cacheFiles: [(url: URL, modified: Date)] = urls.compactMap { url in
+            guard url.pathExtension == "json",
+                  let values = try? url.resourceValues(forKeys: keys),
+                  values.isRegularFile == true else { return nil }
+            return (url, values.contentModificationDate ?? .distantPast)
+        }.sorted {
+            $0.modified == $1.modified
+                ? $0.url.lastPathComponent < $1.url.lastPathComponent
+                : $0.modified < $1.modified
+        }
+
+        let excess = max(0, cacheFiles.count - max(0, maximumCount))
+        for file in cacheFiles.prefix(excess) {
+            try? FileManager.default.removeItem(at: file.url)
         }
     }
 
@@ -479,7 +506,8 @@ final class LyricsProvider {
     }
 
     private static func normalized(_ value: String) -> String {
-        value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        SimplifiedChinese.normalize(value)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
             .unicodeScalars
             .filter { CharacterSet.alphanumerics.contains($0) }
             .map(String.init)
