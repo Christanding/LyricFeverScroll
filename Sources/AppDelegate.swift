@@ -9,6 +9,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let lyricsProvider = LyricsProvider()
     private let settings = SettingsStore.shared
     private let diagnostics = PlaybackDiagnostics.shared
+    private let musicQueue = DispatchQueue(
+        label: "personal.chris.LyricFeverScroll.music",
+        qos: .userInitiated
+    )
 
     private var statusItem: NSStatusItem!
     private var trackMenuItem: NSMenuItem!
@@ -20,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var loadingTrackKey: String?
     private var loadedTrackKey: String?
     private var lyricsLoadGeneration = 0
+    private var musicRefreshGeneration = 0
 
     private var snapshot: MusicSnapshot?
     private var lines: [LyricLine] = []
@@ -147,8 +152,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func refreshFromMusic(forceLyrics: Bool) {
-        do {
-            let newSnapshot = try music.snapshot()
+        musicRefreshGeneration += 1
+        let generation = musicRefreshGeneration
+        musicQueue.async { [weak self] in
+            guard let self else { return }
+            let result = Result { try self.music.snapshot() }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.musicRefreshGeneration == generation else { return }
+                self.applyMusicResult(result, forceLyrics: forceLyrics)
+            }
+        }
+    }
+
+    private func applyMusicResult(
+        _ result: Result<MusicSnapshot, Error>,
+        forceLyrics: Bool
+    ) {
+        switch result {
+        case .success(let newSnapshot):
             if consecutiveMusicFailures > 0 {
                 diagnostics.record("music.recovered failures=\(consecutiveMusicFailures)")
                 consecutiveMusicFailures = 0
@@ -165,6 +186,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
 
             guard newSnapshot.hasTrack else {
+                lyricsTask?.cancel()
+                lyricsTask = nil
+                lyricsLoadGeneration += 1
+                loadingTrackKey = nil
                 lines = []
                 loadedTrackKey = nil
                 currentLineIndex = nil
@@ -178,7 +203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } else {
                 updateCurrentLyric()
             }
-        } catch {
+        case .failure(let error):
             consecutiveMusicFailures += 1
             diagnostics.record(
                 "music.snapshot-failed count=\(consecutiveMusicFailures) error=\(error.localizedDescription)"
@@ -196,10 +221,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func mediaRemoteChanged(_ event: MediaRemotePlaybackEvent) {
-        guard !event.title.isEmpty else {
+        guard event.hasTrackMetadata else {
             refreshFromMusic(forceLyrics: false)
             return
         }
+        musicRefreshGeneration += 1
         let oldKey = snapshot?.trackKey
         let newSnapshot = MusicSnapshot(
             state: event.isPlaying ? "playing" : "paused",
@@ -245,9 +271,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard self.snapshot?.trackKey == expectedKey else { return }
             switch result {
             case .success(let document):
-                let parsed = LRCParser.parse(document.source)
                 self.lines = LyricTimeline.adjusted(
-                    parsed,
+                    document.parsedLines,
                     referenceDuration: document.referenceDuration,
                     playbackDuration: track.duration
                 )
@@ -256,7 +281,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self.diagnostics.record("lyrics.empty title=\(track.name)")
                     self.display("未找到同步歌词")
                 } else {
-                    self.diagnostics.record("lyrics.loaded title=\(track.name) lines=\(self.lines.count)")
+                    self.diagnostics.record(
+                        "lyrics.loaded title=\(track.name) provider=\(document.provider ?? "unknown") lines=\(self.lines.count)"
+                    )
                     self.updateCurrentLyric()
                 }
             case .failure(let error):

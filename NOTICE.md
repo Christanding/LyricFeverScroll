@@ -14,6 +14,27 @@
 - License: MIT
 - Use: runtime lookup of synchronized lyrics through `/api/get` and `/api/search`. Responses are cached locally per track.
 
+## Apple Music Lyrics
+
+- Source: https://github.com/Takpap/apple-music-lyrics
+- Reviewed revision: `c2d8e75382814af16d882579ea532dae147fda3b`
+- License: MIT; included at `ThirdPartyLicenses/AppleLyricsReferences-LICENSES`.
+- Use: the Music.app CFNetwork cache-index and strict metadata-matching approach informed the local Apple lyrics provider. This project adds event-driven cache adoption and Mainland Simplified replacement handling.
+
+## MusanovaKit
+
+- Source: https://github.com/rryam/MusanovaKit
+- Reviewed revision: `17793dc4ecfb3e8cacd6a117fcbcc273b78501e2`
+- License: MIT; included at `ThirdPartyLicenses/AppleLyricsReferences-LICENSES`.
+- Use: structured TTML parsing and timed-segment semantics informed the parser. Its privileged-token network client is deliberately not included.
+
+## LyricsOnMacOSBar
+
+- Source: https://github.com/motian566/LyricsOnMacOSBar
+- Reviewed release: `v1.8.4` (`a5bd39358eb6483ce2b923548443d25307ecef9f`).
+- License: MIT.
+- Use: menu-bar source fallback behavior was reviewed. No source code, embedded developer token, or user-token storage was copied.
+
 ## MediaRemoteAdapter
 
 - Source: https://github.com/ejbills/mediaremote-adapter
@@ -33,7 +54,7 @@
 
 ## Apple frameworks
 
-- AppKit, Foundation, and ServiceManagement are system frameworks supplied with macOS.
+- AppKit, CoreServices, Foundation, and ServiceManagement are system frameworks supplied with macOS.
 
 ## GitHub Actions
 

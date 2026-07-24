@@ -7,10 +7,11 @@
 ## Architecture and data flow
 
 - `AppleMusicClient` reads the current track and position through Apple Events.
-- `LyricsProvider` normalizes metadata before matching, retries the alternate Traditional/Simplified title only after the primary search fails, and writes at most 500 raw-LRC cache files through one utility queue.
+- `AppleMusicCacheLyricsProvider` reads Music.app's local CFNetwork catalog cache, strictly matches title/artist/duration, and parses official TTML. A short-lived FSEvents stream adopts cache writes after track changes without polling, blocked directory descriptors, or account tokens.
+- `LyricsProvider` races that Apple-local source against LRCLIB fallback, normalizes metadata before matching, and writes at most 500 verified lyric documents through one utility queue.
 - `LRCParser` parses timestamps and converts Traditional Chinese to Simplified Chinese.
 - `MainlandChineseConverter` applies the fixed OpenCC 1.3.1 `tw2sp` dictionary chain, followed by narrowly scoped Mainland-preference and lyric typo corrections.
-- `AppDelegate` receives event-driven seek updates through the bundled MediaRemoteAdapter, reconciles immediately after wake and every 15 seconds otherwise, and schedules a zero-tolerance one-shot timer for the next lyric boundary.
+- `AppDelegate` receives event-driven seek updates through the bundled MediaRemoteAdapter, reconciles Music.app on a serial background queue after wake and every 15 seconds otherwise, and schedules a zero-tolerance one-shot timer for the next lyric boundary.
 - `MediaRemotePositionStream` restarts a failed adapter with exponential backoff from 1 to 30 seconds and resets the delay after a valid event.
 - `AttributedLyricFormatter` fits the whole line into at most 420pt and selects fonts per character.
 - `SettingsStore.syncOffset` controls the live lyric offset from -1.5s to +1.5s; the preserved default is +0.65s.
@@ -28,5 +29,6 @@
 
 - Keep resource use low: no display-link or high-frequency animation/polling.
 - Never truncate a lyric line; shrink it to fit.
-- MediaRemoteAdapter is the only non-system runtime component; its verified universal framework and bridge script are pinned under `Vendor/MediaRemoteAdapter` and documented in `NOTICE.md`.
+- The Music cache schema is private and may change after macOS updates; keep LRCLIB as the no-token fallback and verify both source paths.
+- MediaRemoteAdapter is the only bundled executable runtime component; its verified universal framework and bridge script are pinned under `Vendor/MediaRemoteAdapter` and documented in `NOTICE.md`.
 - Keep Simplified Chinese conversion enabled.

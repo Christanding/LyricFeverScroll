@@ -25,9 +25,10 @@ jobs:
         run: |
           mkdir -p build
           swiftc -swift-version 5 -O -warnings-as-errors \
-            -framework AppKit -framework Foundation \
+            -framework AppKit -framework CoreServices -framework Foundation \
             Sources/MainlandChineseConverter.swift Sources/LyricCore.swift \
-            Sources/MediaRemotePositionStream.swift Tests/main.swift \
+            Sources/AppleMusicCache.swift Sources/MediaRemotePositionStream.swift \
+            Tests/main.swift \
             -o build/logic-tests
           ./build/logic-tests
 

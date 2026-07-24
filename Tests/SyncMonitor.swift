@@ -31,43 +31,59 @@ guard let durationArgument = CommandLine.arguments.dropFirst().first,
 
 let musicClient = AppleMusicClient()
 let initial = try musicClient.snapshot()
-let cacheBase = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-let cacheURL = cacheBase
-    .appendingPathComponent("personal.chris.LyricFeverScroll/Lyrics")
-    .appendingPathComponent(LyricsProvider.cacheFileName(for: initial))
-guard let cacheData = try? Data(contentsOf: cacheURL),
-      let document = try? JSONDecoder().decode(LyricsDocument.self, from: cacheData) else {
-    fputs("No lyric cache for \(initial.name)\n", stderr)
-    exit(3)
+let lines: [LyricLine]
+let lyricSource: String
+if let appleLines = AppleMusicCacheLyricsProvider().lines(for: initial) {
+    lines = appleLines
+    lyricSource = "Apple Music"
+} else {
+    let cacheBase = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+    let cacheURL = cacheBase
+        .appendingPathComponent("personal.chris.LyricFeverScroll/Lyrics")
+        .appendingPathComponent(LyricsProvider.cacheFileName(for: initial))
+    guard let cacheData = try? Data(contentsOf: cacheURL),
+          let document = try? JSONDecoder().decode(LyricsDocument.self, from: cacheData) else {
+        fputs("No lyric cache for \(initial.name)\n", stderr)
+        exit(3)
+    }
+    lines = LyricTimeline.adjusted(
+        document.parsedLines,
+        referenceDuration: document.referenceDuration,
+        playbackDuration: initial.duration
+    )
+    lyricSource = document.provider ?? "LRCLIB"
 }
-
-let lines = LyricTimeline.adjusted(
-    LRCParser.parse(document.source),
-    referenceDuration: document.referenceDuration,
-    playbackDuration: initial.duration
-)
+print("SOURCE \(lyricSource) lines=\(lines.count) track=\(initial.name)")
 let music = SBApplication(bundleIdentifier: "com.apple.Music")!
 let statusReader = StatusReader()
-let syncOffset = SettingsStore.shared.syncOffset
+let appDefaults = UserDefaults(suiteName: "personal.chris.LyricFeverScroll")
+let storedSyncOffset = (appDefaults?.object(forKey: "syncOffset") as? NSNumber)?.doubleValue
+let syncOffset = min(
+    max(storedSyncOffset ?? SettingsStore.defaultSyncOffset, SettingsStore.minimumSyncOffset),
+    SettingsStore.maximumSyncOffset
+)
+print(String(format: "OFFSET %+.3fs", syncOffset))
 let started = ProcessInfo.processInfo.systemUptime
 var samples = 0
 var mismatch: (started: TimeInterval, position: TimeInterval, expected: String, observed: String)?
 var longestMismatch: TimeInterval = 0
-var misses: [(TimeInterval, String, String)] = []
+var misses: [(startedAt: TimeInterval, endedAt: TimeInterval, duration: TimeInterval, expected: String, observed: String)] = []
 var lastExpected = ""
+var lastPosition = initial.position
 
 func finishMismatch(at now: TimeInterval) {
     guard let mismatch else { return }
     let duration = now - mismatch.started
     longestMismatch = max(longestMismatch, duration)
     if duration >= 0.3 {
-        misses.append((mismatch.position, mismatch.expected, mismatch.observed))
+        misses.append((mismatch.position, lastPosition, duration, mismatch.expected, mismatch.observed))
     }
 }
 
 while ProcessInfo.processInfo.systemUptime - started < monitorDuration {
     autoreleasepool {
         let position = (music.value(forKey: "playerPosition") as? NSNumber)?.doubleValue ?? 0
+        lastPosition = position
         let index = LRCParser.currentIndex(in: lines, at: position + syncOffset)
         let expected: String
         if let index {
@@ -97,7 +113,14 @@ while ProcessInfo.processInfo.systemUptime - started < monitorDuration {
 finishMismatch(at: ProcessInfo.processInfo.systemUptime)
 print(String(format: "SUMMARY samples=%d longestMismatch=%.3fs materialMismatches=%d", samples, longestMismatch, misses.count))
 for miss in misses.prefix(10) {
-    print(String(format: "MISMATCH %.3f expected=%@ observed=%@", miss.0, miss.1, miss.2))
+    print(String(
+        format: "MISMATCH %.3f–%.3f duration=%.3fs expected=%@ observed=%@",
+        miss.startedAt,
+        miss.endedAt,
+        miss.duration,
+        miss.expected,
+        miss.observed
+    ))
 }
 }
 }

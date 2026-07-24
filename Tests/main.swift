@@ -30,6 +30,194 @@ expect(SimplifiedChinese.normalize("預設軟體") == "默认软件", "台湾常
 expect(LRCParser.currentIndex(in: parsed, at: 1.0) == nil, "首句前不应有当前歌词")
 expect(LRCParser.currentIndex(in: parsed, at: 2.5) == 1, "应定位当前歌词")
 
+let appleReplacementTTML = """
+<tt xmlns="http://www.w3.org/ns/ttml"
+    xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+    xml:lang="zh-Hant">
+  <head><metadata><itunes:iTunesMetadata><itunes:translations>
+    <itunes:translation xml:lang="zh-Hans" type="replacement">
+      <itunes:text for="L1"><span begin="1.25" end="1.50">当</span><span begin="1.50" end="2.00">你</span></itunes:text>
+    </itunes:translation>
+  </itunes:translations></itunes:iTunesMetadata></metadata></head>
+  <body><div>
+    <p begin="1.25" end="2.00" itunes:key="L1"><span begin="1.25" end="1.50">當</span><span begin="1.50" end="2.00">妳</span></p>
+  </div></body>
+</tt>
+"""
+let appleReplacementLines = AppleTTMLParser.parse(appleReplacementTTML)
+expect(appleReplacementLines == [LyricLine(time: 1.25, text: "当你")], "必须优先使用 Apple 官方 zh-Hans replacement")
+let wrappedAppleTTML = String(
+    data: try! JSONSerialization.data(withJSONObject: ["zh-Hans-CN": appleReplacementTTML]),
+    encoding: .utf8
+)!
+expect(
+    AppleMusicCacheLyricsProvider.localizedTTML(from: wrappedAppleTTML) == appleReplacementTTML,
+    "必须兼容 Music.app 用语言 JSON 包装 TTML 的缓存格式"
+)
+
+let appleCacheRoot = FileManager.default.temporaryDirectory
+    .appendingPathComponent("AppleMusicCache-\(UUID().uuidString)", isDirectory: true)
+let appleCacheDataDirectory = appleCacheRoot.appendingPathComponent("fsCachedData", isDirectory: true)
+try! FileManager.default.createDirectory(at: appleCacheDataDirectory, withIntermediateDirectories: true)
+let appleLyricRelationships: [String: Any] = [
+    "syllable-lyrics": [
+        "data": [["attributes": ["ttmlLocalizations": appleReplacementTTML]]]
+    ]
+]
+let appleCatalogResponse: [String: Any] = [
+    "data": [[
+        "attributes": [
+            "name": "缓存测试曲",
+            "artistName": "测试歌手",
+            "albumName": "测试专辑",
+            "durationInMillis": 2_000
+        ],
+        "relationships": appleLyricRelationships
+    ]]
+]
+let appleCatalogData = try! JSONSerialization.data(withJSONObject: appleCatalogResponse)
+try! appleCatalogData.write(to: appleCacheDataDirectory.appendingPathComponent(UUID().uuidString))
+let appleCacheTrack = MusicSnapshot(
+    state: "playing",
+    name: "缓存测试曲",
+    artist: "测试歌手",
+    album: "测试专辑",
+    position: 0,
+    duration: 2
+)
+let appleCacheProvider = AppleMusicCacheLyricsProvider(cacheRoot: appleCacheRoot)
+let appleCachedLines = appleCacheProvider.lines(for: appleCacheTrack)
+let wrongAppleVersion = MusicSnapshot(
+    state: "playing",
+    name: appleCacheTrack.name,
+    artist: appleCacheTrack.artist,
+    album: appleCacheTrack.album,
+    position: 0,
+    duration: 30
+)
+expect(appleCacheProvider.lines(for: wrongAppleVersion) == nil, "同名但时长不符的 Apple 歌词必须拒绝")
+try! FileManager.default.removeItem(at: appleCacheRoot)
+expect(appleCachedLines == appleReplacementLines, "必须从 Music.app 本机缓存匹配并解析官方歌词")
+
+let durationlessCacheRoot = FileManager.default.temporaryDirectory
+    .appendingPathComponent("AppleMusicDurationless-\(UUID().uuidString)", isDirectory: true)
+let durationlessDataDirectory = durationlessCacheRoot
+    .appendingPathComponent("fsCachedData", isDirectory: true)
+try! FileManager.default.createDirectory(at: durationlessDataDirectory, withIntermediateDirectories: true)
+let durationlessResponse: [String: Any] = [
+    "data": [[
+        "attributes": [
+            "name": appleCacheTrack.name,
+            "artistName": appleCacheTrack.artist,
+            "albumName": appleCacheTrack.album
+        ],
+        "relationships": appleLyricRelationships
+    ]]
+]
+try! JSONSerialization.data(withJSONObject: durationlessResponse).write(
+    to: durationlessDataDirectory.appendingPathComponent(UUID().uuidString)
+)
+expect(
+    AppleMusicCacheLyricsProvider(cacheRoot: durationlessCacheRoot).lines(for: appleCacheTrack) == nil,
+    "Apple 歌词缺少时长时不得猜测同名版本"
+)
+try! FileManager.default.removeItem(at: durationlessCacheRoot)
+
+let appleWatchRoot = FileManager.default.temporaryDirectory
+    .appendingPathComponent("AppleMusicWatch-\(UUID().uuidString)", isDirectory: true)
+let appleWatchDataDirectory = appleWatchRoot.appendingPathComponent("fsCachedData", isDirectory: true)
+try! FileManager.default.createDirectory(at: appleWatchDataDirectory, withIntermediateDirectories: true)
+let appleWatchResult = DispatchSemaphore(value: 0)
+var watchedAppleLines: [LyricLine]?
+let appleWatch = AppleMusicCacheLyricsProvider(cacheRoot: appleWatchRoot).watch(
+    for: appleCacheTrack,
+    timeout: 1
+) { lines in
+    watchedAppleLines = lines
+    appleWatchResult.signal()
+}
+DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+    try! appleCatalogData.write(to: appleWatchDataDirectory.appendingPathComponent(UUID().uuidString))
+}
+expect(appleWatchResult.wait(timeout: .now() + 2) == .success, "Music.app 缓存写入必须触发事件驱动读取")
+expect(watchedAppleLines == appleReplacementLines, "新写入的 Apple 官方歌词必须立即被采用")
+appleWatch.cancel()
+
+final class NoNetworkURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {}
+    override func stopLoading() {}
+}
+let noNetworkConfiguration = URLSessionConfiguration.ephemeral
+noNetworkConfiguration.protocolClasses = [NoNetworkURLProtocol.self]
+let localFirstProvider = LyricsProvider(
+    session: URLSession(configuration: noNetworkConfiguration),
+    appleCacheProvider: AppleMusicCacheLyricsProvider(cacheRoot: appleWatchRoot)
+)
+var localFirstDocument: LyricsDocument?
+let localFirstTask = localFirstProvider.load(for: appleCacheTrack) { result in
+    localFirstDocument = try? result.get()
+}
+let localFirstDeadline = Date().addingTimeInterval(2)
+while localFirstDocument == nil, Date() < localFirstDeadline {
+    _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+}
+expect(localFirstDocument?.provider == "Apple Music", "官方本地缓存必须优先于 LRCLIB 网络回退")
+expect(localFirstDocument?.parsedLines == appleReplacementLines, "加载链必须保留 Apple TTML 的原始时间轴")
+localFirstTask.cancel()
+let appleDocument = LyricsDocument(
+    source: "",
+    referenceDuration: appleCacheTrack.duration,
+    embeddedLines: appleReplacementLines,
+    provider: "Apple Music"
+)
+expect(appleDocument.parsedLines == appleReplacementLines, "应直接使用 TTML 时间轴，不应转成有损 LRC")
+expect(
+    LyricsProvider.shouldUseCache(appleDocument, for: appleCacheTrack, ignoringCache: false),
+    "已验证的 Apple TTML 必须本地缓存，以便再次播放时立即显示"
+)
+try! FileManager.default.removeItem(at: appleWatchRoot)
+
+final class ImmediateFailureURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+    }
+    override func stopLoading() {}
+}
+let delayedAppleRoot = FileManager.default.temporaryDirectory
+    .appendingPathComponent("AppleMusicDelayed-\(UUID().uuidString)", isDirectory: true)
+let delayedAppleDataDirectory = delayedAppleRoot
+    .appendingPathComponent("fsCachedData", isDirectory: true)
+try! FileManager.default.createDirectory(at: delayedAppleDataDirectory, withIntermediateDirectories: true)
+let immediateFailureConfiguration = URLSessionConfiguration.ephemeral
+immediateFailureConfiguration.protocolClasses = [ImmediateFailureURLProtocol.self]
+let delayedAppleProvider = LyricsProvider(
+    session: URLSession(configuration: immediateFailureConfiguration),
+    appleCacheProvider: AppleMusicCacheLyricsProvider(cacheRoot: delayedAppleRoot)
+)
+var delayedAppleResult: Result<LyricsDocument, Error>?
+let delayedAppleTask = delayedAppleProvider.load(for: appleCacheTrack, ignoringCache: true) {
+    delayedAppleResult = $0
+}
+DispatchQueue.global().asyncAfter(deadline: .now() + 0.15) {
+    try! appleCatalogData.write(
+        to: delayedAppleDataDirectory.appendingPathComponent(UUID().uuidString)
+    )
+}
+let delayedAppleDeadline = Date().addingTimeInterval(2)
+while delayedAppleResult == nil, Date() < delayedAppleDeadline {
+    _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+}
+expect(
+    (try? delayedAppleResult?.get().provider) == "Apple Music",
+    "LRCLIB 提前失败时仍必须等待已在到达的 Apple 官方歌词"
+)
+delayedAppleTask.cancel()
+try! FileManager.default.removeItem(at: delayedAppleRoot)
+
 let blankGap = LRCParser.parse("[00:01.00]第一句\n[00:02.00] \n[00:03.00]第二句")
 expect(blankGap.count == 3 && blankGap[1].text.isEmpty, "带时间戳的空行必须清空上一句")
 expect(LyricsProvider.lookupTitle("迷人的危险 (Live)") == "迷人的危险", "应为现场版回退基础歌名")
@@ -141,6 +329,24 @@ let retryDelays = (0..<7).map { _ in retryBackoff.nextDelay() }
 expect(retryDelays == [1, 2, 4, 8, 16, 30, 30], "MediaRemote 重启必须指数退避并限制在 30 秒")
 retryBackoff.reset()
 expect(retryBackoff.nextDelay() == 1, "收到正常事件后必须重置重启退避")
+let incompleteMediaEvent = MediaRemotePlaybackEvent(
+    position: 0,
+    duration: 0,
+    isPlaying: true,
+    title: "新歌",
+    artist: "",
+    album: ""
+)
+expect(!incompleteMediaEvent.hasTrackMetadata, "切歌的半成品媒体事件不得用于匹配歌词")
+let durationlessMediaEvent = MediaRemotePlaybackEvent(
+    position: 0,
+    duration: 0,
+    isPlaying: true,
+    title: "新歌",
+    artist: "歌手",
+    album: "专辑"
+)
+expect(!durationlessMediaEvent.hasTrackMetadata, "时长尚未到达时必须等待完整曲目快照")
 
 let fitted = AttributedLyricFormatter.fit(
     "抓住命运衣袖 在路口等我 This is a complete lyric line tonight",

@@ -23,7 +23,7 @@ final class PlaybackDiagnostics {
     }
 }
 
-struct LyricLine: Equatable {
+struct LyricLine: Codable, Equatable {
     let time: TimeInterval
     let text: String
 }
@@ -221,6 +221,24 @@ struct LRCLIBRecord: Decodable {
 struct LyricsDocument: Codable, Equatable {
     let source: String
     let referenceDuration: TimeInterval?
+    let embeddedLines: [LyricLine]?
+    let provider: String?
+
+    init(
+        source: String,
+        referenceDuration: TimeInterval?,
+        embeddedLines: [LyricLine]? = nil,
+        provider: String? = "LRCLIB"
+    ) {
+        self.source = source
+        self.referenceDuration = referenceDuration
+        self.embeddedLines = embeddedLines
+        self.provider = provider
+    }
+
+    var parsedLines: [LyricLine] {
+        embeddedLines ?? LRCParser.parse(source)
+    }
 }
 
 enum LyricTimeline {
@@ -244,12 +262,14 @@ enum LyricTimeline {
 final class LyricsLoadTask {
     fileprivate var tasks: [URLSessionDataTask] = []
     fileprivate var delayedResult: DispatchWorkItem?
+    fileprivate var appleCacheWatch: AppleMusicCacheWatch?
     fileprivate var completed = false
     fileprivate var failureCount = 0
 
     func cancel() {
         completed = true
         delayedResult?.cancel()
+        appleCacheWatch?.cancel()
         tasks.forEach { $0.cancel() }
     }
 }
@@ -257,20 +277,25 @@ final class LyricsLoadTask {
 final class LyricsProvider {
     typealias Completion = (Result<LyricsDocument, Error>) -> Void
 
-    private static let cacheVersion = "v4"
+    private static let cacheVersion = "v5"
     private static let maximumCacheFiles = 500
     private static let userAgentVersion = Bundle.main.object(
         forInfoDictionaryKey: "CFBundleShortVersionString"
     ) as? String ?? "1.1.0"
     private let session: URLSession
+    private let appleCacheProvider: AppleMusicCacheLyricsProvider
     private let cacheDirectory: URL
     private let cacheQueue = DispatchQueue(
         label: "personal.chris.LyricFeverScroll.cache",
         qos: .utility
     )
 
-    init(session: URLSession = .shared) {
+    init(
+        session: URLSession = .shared,
+        appleCacheProvider: AppleMusicCacheLyricsProvider = AppleMusicCacheLyricsProvider()
+    ) {
         self.session = session
+        self.appleCacheProvider = appleCacheProvider
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         cacheDirectory = base.appendingPathComponent(
             "personal.chris.LyricFeverScroll/Lyrics",
@@ -283,37 +308,72 @@ final class LyricsProvider {
         for track: MusicSnapshot,
         ignoringCache: Bool = false,
         completion: @escaping Completion
-    ) -> LyricsLoadTask? {
+    ) -> LyricsLoadTask {
         let cacheURL = cacheDirectory.appendingPathComponent(Self.cacheFileName(for: track))
-        if let data = try? Data(contentsOf: cacheURL),
-           let cached = try? JSONDecoder().decode(LyricsDocument.self, from: data),
-           Self.shouldUseCache(cached, for: track, ignoringCache: ignoringCache) {
-            DispatchQueue.main.async { completion(.success(cached)) }
-            return nil
-        }
-
-        let searchURLs = Self.searchTitles(for: track.name).compactMap(Self.searchURL(for:))
-        guard let exactURL = Self.exactURL(for: track),
-              let searchURL = searchURLs.first else {
-            DispatchQueue.main.async { completion(.failure(LyricsError.invalidRequest)) }
-            return nil
-        }
-        let fallbackSearchURL = searchURLs.dropFirst().first
-
         let loadTask = LyricsLoadTask()
+        var appleFinished = false
+        var networkError: Error?
 
         func finish(_ result: Result<LyricsDocument, Error>) {
             guard !loadTask.completed else { return }
             loadTask.completed = true
             loadTask.delayedResult?.cancel()
+            loadTask.appleCacheWatch?.cancel()
             loadTask.tasks.forEach { $0.cancel() }
             completion(result)
         }
 
+        func finishNetworkFailure(_ error: Error) {
+            guard !loadTask.completed else { return }
+            networkError = error
+            if appleFinished { finish(.failure(error)) }
+        }
+
+        loadTask.appleCacheWatch = appleCacheProvider.watch(
+            for: track,
+            timeout: 5
+        ) { lines in
+            DispatchQueue.main.async {
+                guard !loadTask.completed else { return }
+                guard let lines, !lines.isEmpty else {
+                    appleFinished = true
+                    if let networkError { finish(.failure(networkError)) }
+                    return
+                }
+                let document = LyricsDocument(
+                    source: "",
+                    referenceDuration: track.duration,
+                    embeddedLines: lines,
+                    provider: "Apple Music"
+                )
+                self.save(document, to: cacheURL)
+                finish(.success(document))
+            }
+        }
+
+        if let data = try? Data(contentsOf: cacheURL),
+           let cached = try? JSONDecoder().decode(LyricsDocument.self, from: data),
+           Self.shouldUseCache(cached, for: track, ignoringCache: ignoringCache) {
+            let delayed = DispatchWorkItem { finish(.success(cached)) }
+            loadTask.delayedResult = delayed
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: delayed)
+            return loadTask
+        }
+
+        let searchURLs = Self.searchTitles(for: track.name).compactMap(Self.searchURL(for:))
+        guard let exactURL = Self.exactURL(for: track),
+              let searchURL = searchURLs.first else {
+            DispatchQueue.main.async { finishNetworkFailure(LyricsError.invalidRequest) }
+            return loadTask
+        }
+        let fallbackSearchURL = searchURLs.dropFirst().first
+
         func fail(_ error: Error) {
             guard !loadTask.completed else { return }
             loadTask.failureCount += 1
-            if loadTask.failureCount >= loadTask.tasks.count { finish(.failure(error)) }
+            if loadTask.failureCount >= loadTask.tasks.count {
+                finishNetworkFailure(error)
+            }
         }
 
         func acceptSearch(_ records: [LRCLIBRecord], provider: LyricsProvider?) -> Bool {
@@ -393,7 +453,8 @@ final class LyricsProvider {
         for track: MusicSnapshot,
         ignoringCache: Bool
     ) -> Bool {
-        guard !ignoringCache, !document.source.isEmpty else { return false }
+        let hasLyrics = !document.source.isEmpty || document.embeddedLines?.isEmpty == false
+        guard !ignoringCache, hasLyrics else { return false }
         guard let referenceDuration = document.referenceDuration,
               referenceDuration > 0,
               track.duration > 0 else {

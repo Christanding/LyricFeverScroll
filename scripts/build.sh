@@ -18,7 +18,10 @@ fi
 
 (cd "$adapter_source" && shasum -a 256 -c SHA256SUMS >/dev/null)
 
-rm -rf "$app_dir"
+if [[ -e "$app_dir" ]]; then
+  previous_build_dir="$(mktemp -d "${TMPDIR:-/tmp}/LyricFeverScroll-build.XXXXXX")"
+  mv "$app_dir" "$previous_build_dir/"
+fi
 mkdir -p "$contents_dir/MacOS" "$contents_dir/Frameworks" "$contents_dir/Resources/MediaRemoteAdapter" "$contents_dir/Resources/OpenCC" "$contents_dir/Resources/ThirdPartyLicenses"
 
 swiftc \
@@ -26,6 +29,7 @@ swiftc \
   -O \
   -whole-module-optimization \
   -framework AppKit \
+  -framework CoreServices \
   -framework Foundation \
   -framework ServiceManagement \
   "$project_dir"/Sources/*.swift \
@@ -39,5 +43,6 @@ for name in $opencc_files; do
 done
 cp "$project_dir/THIRD_PARTY_LICENSES/OpenCC-LICENSE" "$contents_dir/Resources/ThirdPartyLicenses/OpenCC-LICENSE"
 cp "$project_dir/THIRD_PARTY_LICENSES/MediaRemoteAdapter-LICENSE" "$contents_dir/Resources/ThirdPartyLicenses/MediaRemoteAdapter-LICENSE"
+cp "$project_dir/THIRD_PARTY_LICENSES/AppleLyricsReferences-LICENSES" "$contents_dir/Resources/ThirdPartyLicenses/AppleLyricsReferences-LICENSES"
 codesign --force --deep --sign - "$app_dir"
 echo "$app_dir"

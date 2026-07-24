@@ -7,6 +7,8 @@ struct MediaRemotePlaybackEvent {
     let title: String
     let artist: String
     let album: String
+
+    var hasTrackMetadata: Bool { !title.isEmpty && !artist.isEmpty && duration > 0 }
 }
 
 struct RetryBackoff {
