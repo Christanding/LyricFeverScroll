@@ -154,8 +154,12 @@ expect(fitted.attributedText.string.contains("complete lyric line"), "不得截�
 let chineseFont = fitted.attributedText.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
 let englishLocation = (fitted.attributedText.string as NSString).range(of: "This").location
 let englishFont = fitted.attributedText.attribute(.font, at: englishLocation, effectiveRange: nil) as? NSFont
-expect(chineseFont?.familyName == "KaiTi", "中文应使用楷体")
-expect(englishFont?.familyName == "Times New Roman", "英文应使用 Times New Roman")
+let expectedChineseFamily = NSFont(name: "KaiTi", size: 13)?.familyName
+    ?? NSFont.systemFont(ofSize: 13).familyName
+let expectedEnglishFamily = NSFont(name: "Times New Roman", size: 13)?.familyName
+    ?? NSFont.systemFont(ofSize: 13).familyName
+expect(chineseFont?.familyName == expectedChineseFamily, "中文应使用楷体，不可用时应回退到系统字体")
+expect(englishFont?.familyName == expectedEnglishFamily, "英文应使用 Times New Roman，不可用时应回退到系统字体")
 
 let adjusted = LyricTimeline.adjusted(
     [LyricLine(time: 100, text: "测试")],
