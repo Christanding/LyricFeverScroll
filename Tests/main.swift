@@ -354,6 +354,25 @@ let fitted = AttributedLyricFormatter.fit(
 expect(fitted.statusWidth <= 420, "状态栏宽度不得超过 420pt")
 expect(fitted.attributedText.string.contains("complete lyric line"), "不得截断歌词")
 
+let notchedScreenWidth = MenuBarLayout.lyricWidthLimit(
+    itemRightEdge: 1_209,
+    safeRegionMinX: 850
+)
+expect(notchedScreenWidth == 351, "刘海屏歌词不得伸入菜单栏非安全区域")
+expect(
+    MenuBarLayout.lyricWidthLimit(itemRightEdge: nil, safeRegionMinX: nil) == 420,
+    "普通屏幕应保留原有最大宽度"
+)
+let notchedScreenFitted = AttributedLyricFormatter.fit(
+    "我的爱如潮水 爱如潮水将我向你推 紧紧跟随 爱如潮水它将你我包围",
+    chineseFont: "KaiTi",
+    latinFont: "Times New Roman",
+    preferredSize: 13,
+    maximumWidth: notchedScreenWidth
+)
+expect(notchedScreenFitted.statusWidth <= 351, "长歌词必须留在刘海右侧安全区")
+expect(notchedScreenFitted.attributedText.string.contains("爱如潮水它将你我包围"), "适配刘海时仍不得截断歌词")
+
 let chineseFont = fitted.attributedText.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
 let englishLocation = (fitted.attributedText.string as NSString).range(of: "This").location
 let englishFont = fitted.attributedText.attribute(.font, at: englishLocation, effectiveRange: nil) as? NSFont

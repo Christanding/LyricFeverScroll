@@ -340,11 +340,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func renderCurrentText() {
         guard !displayedText.isEmpty else { return }
+        let statusWindow = statusItem.button?.window
+        let maximumWidth = MenuBarLayout.lyricWidthLimit(
+            itemRightEdge: statusWindow?.frame.maxX,
+            safeRegionMinX: statusWindow?.screen?.auxiliaryTopRightArea?.minX
+        )
         let fitted = AttributedLyricFormatter.fit(
             displayedText,
             chineseFont: settings.chineseFont,
             latinFont: settings.latinFont,
-            preferredSize: settings.fontSize
+            preferredSize: settings.fontSize,
+            maximumWidth: maximumWidth
         )
         statusItem.length = fitted.statusWidth
         statusItem.button?.attributedTitle = fitted.attributedText

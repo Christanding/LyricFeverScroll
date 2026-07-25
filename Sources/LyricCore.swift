@@ -808,3 +808,22 @@ enum AttributedLyricFormatter {
         }
     }
 }
+
+enum MenuBarLayout {
+    private static let edgeClearance: CGFloat = 8
+
+    static func lyricWidthLimit(
+        itemRightEdge: CGFloat?,
+        safeRegionMinX: CGFloat?
+    ) -> CGFloat {
+        guard let itemRightEdge,
+              let safeRegionMinX,
+              itemRightEdge > safeRegionMinX else {
+            return AttributedLyricFormatter.maximumWidth
+        }
+        return min(
+            AttributedLyricFormatter.maximumWidth,
+            max(38, floor(itemRightEdge - safeRegionMinX - edgeClearance))
+        )
+    }
+}
