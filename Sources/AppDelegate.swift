@@ -69,6 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         diagnostics.record("app.started")
         refreshFromMusic(forceLyrics: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            self?.recoverHiddenStatusItem()
+        }
 
         if !settings.welcomeShown {
             settings.welcomeShown = true
@@ -90,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func createStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: 140)
         statusItem.autosaveName = "LyricFeverScroll.Leftmost"
+        statusItem.isVisible = true
         if let button = statusItem.button {
             button.title = "歌词…"
             button.toolTip = "Lyric Fever Scroll"
@@ -133,6 +137,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = menu
         updateLaunchAtLoginMenuItem()
         display("歌词…")
+    }
+
+    private func recoverHiddenStatusItem() {
+        guard let window = statusItem.button?.window,
+              let screen = window.screen ?? NSScreen.main,
+              window.frame.maxY < screen.frame.maxY - NSStatusBar.system.thickness else {
+            return
+        }
+
+        diagnostics.record("status.hidden frame=\(window.frame)")
+        let alert = NSAlert()
+        alert.messageText = "请允许 Lyric Fever Scroll 显示在菜单栏"
+        alert.informativeText = "macOS 已隐藏歌词。请在“允许在菜单栏显示”中开启 Lyric Fever Scroll。"
+        alert.addButton(withTitle: "打开菜单栏设置")
+        alert.addButton(withTitle: "稍后")
+        NSApp.activate(ignoringOtherApps: true)
+
+        guard alert.runModal() == .alertFirstButtonReturn,
+              let url = URL(string: "x-apple.systempreferences:com.apple.ControlCenter-Settings.extension") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     func menuWillOpen(_ menu: NSMenu) {

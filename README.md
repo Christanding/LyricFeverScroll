@@ -16,6 +16,7 @@ Lyric Fever Scroll 是一款面向 macOS 13 及以上版本的 Apple Music 菜�
 - Apple Music（Music.app）
 
 首次运行时，请允许应用控制 Apple Music。应用仅显示在菜单栏，不显示 Dock 图标。
+若 macOS 禁止该状态栏项，应用会在启动时提示打开“菜单栏”设置。
 
 ## 构建与测试
 

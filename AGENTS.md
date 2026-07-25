@@ -16,6 +16,7 @@
 - `AttributedLyricFormatter` fits the whole line into a fixed 220pt notch-safe slot and selects fonts per character.
 - `SettingsStore.syncOffset` controls the live lyric offset from -1.5s to +1.5s; the preserved default is +0.65s.
 - `PlaybackDiagnostics` keeps only the latest 100 important events in memory; the menu can copy them for troubleshooting.
+- `AppDelegate` performs one launch-time placement check and shows a direct recovery prompt if macOS moves the status item out of the menu bar.
 - `SMAppService.mainApp` controls the optional launch-at-login menu item on macOS 13 or later.
 
 ## Runbook
