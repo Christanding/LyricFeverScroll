@@ -13,7 +13,7 @@
 - `MainlandChineseConverter` applies the fixed OpenCC 1.3.1 `tw2sp` dictionary chain, followed by narrowly scoped Mainland-preference and lyric typo corrections.
 - `AppDelegate` receives event-driven seek updates through the bundled MediaRemoteAdapter, reconciles Music.app on a serial background queue after wake and every 15 seconds otherwise, and schedules a zero-tolerance one-shot timer for the next lyric boundary.
 - `MediaRemotePositionStream` restarts a failed adapter with exponential backoff from 1 to 30 seconds and resets the delay after a valid event.
-- `AttributedLyricFormatter` fits the whole line into at most 420pt and selects fonts per character.
+- `AttributedLyricFormatter` fits the whole line into a fixed 220pt notch-safe slot and selects fonts per character.
 - `SettingsStore.syncOffset` controls the live lyric offset from -1.5s to +1.5s; the preserved default is +0.65s.
 - `PlaybackDiagnostics` keeps only the latest 100 important events in memory; the menu can copy them for troubleshooting.
 - `SMAppService.mainApp` controls the optional launch-at-login menu item on macOS 13 or later.

@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     )
 
     private var statusItem: NSStatusItem!
+    private var reservedStatusWidth: CGFloat?
     private var trackMenuItem: NSMenuItem!
     private var launchAtLoginMenuItem: NSMenuItem!
     private var settingsWindow: SettingsWindowController!
@@ -88,7 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func createStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: 140)
-        statusItem.autosaveName = "LyricFeverScroll"
+        statusItem.autosaveName = "LyricFeverScroll.Leftmost"
         if let button = statusItem.button {
             button.title = "歌词…"
             button.toolTip = "Lyric Fever Scroll"
@@ -341,10 +342,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func renderCurrentText() {
         guard !displayedText.isEmpty else { return }
         let statusWindow = statusItem.button?.window
-        let maximumWidth = MenuBarLayout.lyricWidthLimit(
+        let maximumWidth = reservedStatusWidth ?? MenuBarLayout.lyricWidthLimit(
             itemRightEdge: statusWindow?.frame.maxX,
             safeRegionMinX: statusWindow?.screen?.auxiliaryTopRightArea?.minX
         )
+        reservedStatusWidth = maximumWidth
         let fitted = AttributedLyricFormatter.fit(
             displayedText,
             chineseFont: settings.chineseFont,
@@ -352,7 +354,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             preferredSize: settings.fontSize,
             maximumWidth: maximumWidth
         )
-        statusItem.length = fitted.statusWidth
+        statusItem.length = maximumWidth
         statusItem.button?.attributedTitle = fitted.attributedText
         statusItem.button?.toolTip = displayedText
     }

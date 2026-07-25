@@ -736,7 +736,7 @@ struct FittedLyric {
 enum AttributedLyricFormatter {
     static let maximumWidth: CGFloat = 420
     private static let horizontalPadding: CGFloat = 18
-    private static let minimumFontSize: CGFloat = 6.5
+    private static let minimumFontSize: CGFloat = 6
 
     static func fit(
         _ text: String,
@@ -810,6 +810,7 @@ enum AttributedLyricFormatter {
 }
 
 enum MenuBarLayout {
+    private static let fixedLyricWidth: CGFloat = 220
     private static let edgeClearance: CGFloat = 8
 
     static func lyricWidthLimit(
@@ -819,10 +820,10 @@ enum MenuBarLayout {
         guard let itemRightEdge,
               let safeRegionMinX,
               itemRightEdge > safeRegionMinX else {
-            return AttributedLyricFormatter.maximumWidth
+            return fixedLyricWidth
         }
         return min(
-            AttributedLyricFormatter.maximumWidth,
+            fixedLyricWidth,
             max(38, floor(itemRightEdge - safeRegionMinX - edgeClearance))
         )
     }
