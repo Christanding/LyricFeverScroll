@@ -36,6 +36,7 @@ swiftc \
   -o "$executable"
 
 cp "$project_dir/Info.plist" "$contents_dir/Info.plist"
+cp "$project_dir/Resources/AppIcon.icns" "$contents_dir/Resources/AppIcon.icns"
 ditto "$adapter_framework" "$contents_dir/Frameworks/MediaRemoteAdapter.framework"
 cp "$adapter_script" "$contents_dir/Resources/MediaRemoteAdapter/run.pl"
 for name in $opencc_files; do
